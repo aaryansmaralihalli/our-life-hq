@@ -130,7 +130,7 @@ export default function Gym() {
   const del = async (id) => remove("gym_entries", id);
 
   return (
-    <div className="animate-fade-up">
+    <div>
       <PageHeader
         title="Gym"
         subtitle={`${monthVolume.toLocaleString()} kg lifted this month`}

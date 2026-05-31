@@ -101,7 +101,7 @@ export default function Health() {
   };
 
   return (
-    <div className="animate-fade-up">
+    <div>
       <PageHeader
         title="Health"
         subtitle="body composition, done properly"

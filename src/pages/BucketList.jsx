@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import { Plus, Pencil, Trash2, Calendar, LayoutGrid, List as ListIcon, Check } from "lucide-react";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Plus, Pencil, Trash2, Calendar, LayoutGrid, List as ListIcon, Check, Image as ImageIcon } from "lucide-react";
 import { useData } from "../context/AppData";
 import {
   Card,
@@ -14,9 +15,13 @@ import {
   Empty,
   PageHeader,
   Chip,
+  StatusPicker,
   confirmDelete,
   burstConfetti,
 } from "../components/ui";
+import { AnimatedNumber } from "../components/motion";
+import PhotoUploader from "../components/PhotoUploader";
+import { PhotoStrip } from "../components/PhotoStrip";
 import { BUCKET_CATEGORIES, BUCKET_STATUSES, todayISO } from "../lib/constants";
 
 const statusTone = {
@@ -36,12 +41,13 @@ const blank = () => ({
   done_date: null,
   excitement: 2,
   notes: "",
+  photos: [],
 });
 
 export default function BucketList() {
   const { bucket_items, whoOptions, add, update, remove } = useData();
   const [view, setView] = useState("list");
-  const [editing, setEditing] = useState(null); // row or {} for new
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blank());
 
   const total = bucket_items.length;
@@ -53,7 +59,7 @@ export default function BucketList() {
     setEditing({});
   };
   const openEdit = (row) => {
-    setForm({ ...blank(), ...row, target_date: row.target_date || "" });
+    setForm({ ...blank(), ...row, target_date: row.target_date || "", photos: row.photos || [] });
     setEditing(row);
   };
 
@@ -73,7 +79,7 @@ export default function BucketList() {
     const patch = { status };
     if (status === "Done") {
       patch.done_date = row.done_date || todayISO();
-      if (ev) burstConfetti(ev.clientX, ev.clientY);
+      if (ev) burstConfetti(ev.clientX ?? window.innerWidth / 2, ev.clientY ?? 200);
     }
     await update("bucket_items", row.id, patch);
   };
@@ -83,7 +89,7 @@ export default function BucketList() {
   };
 
   return (
-    <div className="animate-fade-up">
+    <div>
       <PageHeader
         title="Bucket List"
         subtitle="dreams to chase, together"
@@ -97,9 +103,11 @@ export default function BucketList() {
       <Card className="mb-6 p-5">
         <div className="mb-2 flex items-center justify-between text-sm font-semibold">
           <span>
-            <b className="text-coral">{done}</b> of <b>{total}</b> dreams fulfilled
+            <AnimatedNumber value={done} className="text-coral text-lg font-bold" /> of {total} dreams fulfilled
           </span>
-          <span className="text-ink-soft">{pct}%</span>
+          <span className="text-ink-soft">
+            <AnimatedNumber value={pct} />%
+          </span>
         </div>
         <ProgressBar value={pct} />
       </Card>
@@ -119,11 +127,13 @@ export default function BucketList() {
       {total === 0 && <Empty emoji="🎯">No dreams yet — add your first ✨</Empty>}
 
       {view === "list" && (
-        <div className="space-y-3">
-          {bucket_items.map((row) => (
-            <DreamRow key={row.id} row={row} onEdit={openEdit} onDel={del} onStatus={setStatus} />
-          ))}
-        </div>
+        <motion.div layout className="space-y-3">
+          <AnimatePresence mode="popLayout">
+            {bucket_items.map((row) => (
+              <DreamRow key={row.id} row={row} onEdit={openEdit} onDel={del} onStatus={setStatus} />
+            ))}
+          </AnimatePresence>
+        </motion.div>
       )}
 
       {view === "board" && (
@@ -136,26 +146,42 @@ export default function BucketList() {
                   {bucket_items.filter((b) => b.status === st).length}
                 </span>
               </div>
-              <div className="space-y-3">
-                {bucket_items
-                  .filter((b) => b.status === st)
-                  .map((row) => (
-                    <Card key={row.id} className="p-3.5">
-                      <div className="font-semibold">{row.dream}</div>
-                      <div className="mt-1 text-xs text-ink-soft">
-                        {row.category} · {row.who} {excitementStars(row.excitement)}
-                      </div>
-                      <div className="mt-2 flex gap-1">
-                        <button onClick={() => openEdit(row)} className="text-ink-soft hover:text-coral">
-                          <Pencil size={15} />
-                        </button>
-                        <button onClick={() => del(row)} className="text-ink-soft hover:text-red-600">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </Card>
-                  ))}
-              </div>
+              <motion.div layout className="space-y-3">
+                <AnimatePresence mode="popLayout">
+                  {bucket_items
+                    .filter((b) => b.status === st)
+                    .map((row) => (
+                      <motion.div
+                        layout
+                        key={row.id}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                      >
+                        <Card className="p-3.5">
+                          <div className="font-semibold">{row.dream}</div>
+                          <div className="mt-1 text-xs text-ink-soft">
+                            {row.category} · {row.who} {excitementStars(row.excitement)}
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <StatusPicker
+                              value={row.status}
+                              options={BUCKET_STATUSES}
+                              tones={statusTone}
+                              onChange={(s) => setStatus(row, s)}
+                            />
+                            <button onClick={() => openEdit(row)} className="ml-auto text-ink-soft hover:text-coral">
+                              <Pencil size={15} />
+                            </button>
+                            <button onClick={() => del(row)} className="text-ink-soft hover:text-red-600">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </Card>
+                      </motion.div>
+                    ))}
+                </AnimatePresence>
+              </motion.div>
             </div>
           ))}
         </div>
@@ -176,7 +202,7 @@ export default function BucketList() {
                   })}
                 </div>
                 <div className="flex-1 font-semibold">{row.dream}</div>
-                <Badge tone={statusTone[row.status]}>{row.status}</Badge>
+                <StatusPicker value={row.status} options={BUCKET_STATUSES} tones={statusTone} onChange={(s) => setStatus(row, s)} />
               </Card>
             ))}
           {bucket_items.filter((b) => b.target_date && b.status !== "Done").length === 0 && (
@@ -185,7 +211,7 @@ export default function BucketList() {
         </div>
       )}
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? "Edit dream" : "New dream"}>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? "Edit dream" : "New dream"} wide>
         <form onSubmit={save} className="space-y-3">
           <Field label="Dream">
             <Input
@@ -204,11 +230,7 @@ export default function BucketList() {
               />
             </Field>
             <Field label="Who">
-              <Select
-                options={whoOptions}
-                value={form.who}
-                onChange={(e) => setForm({ ...form, who: e.target.value })}
-              />
+              <Select options={whoOptions} value={form.who} onChange={(e) => setForm({ ...form, who: e.target.value })} />
             </Field>
             <Field label="Status">
               <Select
@@ -236,9 +258,13 @@ export default function BucketList() {
             />
           </Field>
           <Field label="Notes">
-            <Textarea
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </Field>
+          <Field label="📷 Photo memories">
+            <PhotoUploader
+              photos={form.photos}
+              folder="bucket"
+              onChange={(photos) => setForm({ ...form, photos })}
             />
           </Field>
           <div className="flex justify-end gap-2 pt-1">
@@ -255,38 +281,56 @@ export default function BucketList() {
 
 function DreamRow({ row, onEdit, onDel, onStatus }) {
   const isDone = row.status === "Done";
+  const photos = row.photos || [];
   return (
-    <Card className="flex items-center gap-3 p-4">
-      <button
-        onClick={(e) => onStatus(row, isDone ? "In Progress" : "Done", e)}
-        title={isDone ? "Mark as not done" : "Mark as done"}
-        className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 transition ${
-          isDone ? "border-sage bg-sage text-white" : "border-coral text-transparent hover:bg-coral/10"
-        }`}
-      >
-        <Check size={16} />
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className={`truncate font-semibold ${isDone ? "text-ink-soft line-through" : ""}`}>
-          {row.dream}
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ type: "spring", stiffness: 200, damping: 24 }}
+      whileHover={{ y: -3 }}
+      className="group"
+    >
+      <Card className="p-4">
+        <div className="flex items-center gap-3">
+          <motion.button
+            whileTap={{ scale: 0.85 }}
+            onClick={(e) => onStatus(row, isDone ? "In Progress" : "Done", e)}
+            title={isDone ? "Mark as not done" : "Mark as done"}
+            className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 transition ${
+              isDone ? "border-sage bg-sage text-white" : "border-coral text-transparent hover:bg-coral/10"
+            }`}
+          >
+            <Check size={16} />
+          </motion.button>
+          <div className="min-w-0 flex-1">
+            <div className={`truncate font-semibold ${isDone ? "text-ink-soft line-through" : ""}`}>
+              {row.dream}
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-soft">
+              <span>{row.category} · {row.who} {excitementStars(row.excitement)}</span>
+              {photos.length > 0 && (
+                <span className="inline-flex items-center gap-0.5">
+                  · <ImageIcon size={11} /> {photos.length}
+                </span>
+              )}
+              {row.target_date && !isDone && <span>· 🎯 {new Date(row.target_date).toLocaleDateString()}</span>}
+              {isDone && row.done_date && <span>· ✅ {new Date(row.done_date).toLocaleDateString()}</span>}
+            </div>
+          </div>
+          <StatusPicker value={row.status} options={BUCKET_STATUSES} tones={statusTone} onChange={(s) => onStatus(row, s)} />
+          <div className="flex gap-1 opacity-0 transition group-hover:opacity-100">
+            <button onClick={() => onEdit(row)} className="text-ink-soft hover:text-coral">
+              <Pencil size={16} />
+            </button>
+            <button onClick={() => onDel(row)} className="text-ink-soft hover:text-red-600">
+              <Trash2 size={16} />
+            </button>
+          </div>
         </div>
-        <div className="mt-0.5 text-xs text-ink-soft">
-          {row.category} · {row.who} {excitementStars(row.excitement)}
-          {row.target_date && !isDone && (
-            <> · 🎯 {new Date(row.target_date).toLocaleDateString()}</>
-          )}
-          {isDone && row.done_date && (
-            <> · ✅ {new Date(row.done_date).toLocaleDateString()}</>
-          )}
-        </div>
-      </div>
-      {!isDone && <Badge tone={statusTone[row.status]}>{row.status}</Badge>}
-      <button onClick={() => onEdit(row)} className="text-ink-soft hover:text-coral">
-        <Pencil size={16} />
-      </button>
-      <button onClick={() => onDel(row)} className="text-ink-soft hover:text-red-600">
-        <Trash2 size={16} />
-      </button>
-    </Card>
+        {photos.length > 0 && <PhotoStrip photos={photos} className="mt-3" />}
+      </Card>
+    </motion.div>
   );
 }

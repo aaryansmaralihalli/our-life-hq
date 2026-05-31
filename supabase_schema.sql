@@ -26,7 +26,7 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
--- 2. Bucket list
+-- 2. Bucket list (with photo memories)
 create table if not exists public.bucket_items (
   id uuid primary key default gen_random_uuid(),
   dream text not null,
@@ -37,10 +37,11 @@ create table if not exists public.bucket_items (
   done_date date,
   excitement int default 2,
   notes text default '',
+  photos jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
--- 3. Food
+-- 3. Food (with photos)
 create table if not exists public.food_spots (
   id uuid primary key default gen_random_uuid(),
   place text not null,
@@ -52,10 +53,11 @@ create table if not exists public.food_spots (
   cost_for_two numeric,
   who text,
   notes text default '',
+  photos jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
--- 4. Travel destinations
+-- 4. Travel destinations (with photos)
 create table if not exists public.destinations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -69,6 +71,7 @@ create table if not exists public.destinations (
   budget numeric,
   who text,
   notes text default '',
+  photos jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -106,10 +109,13 @@ create table if not exists public.health_entries (
   created_at timestamptz not null default now()
 );
 
+-- If you ran an earlier version of this schema, add the photos columns:
+alter table public.bucket_items add column if not exists photos jsonb not null default '[]'::jsonb;
+alter table public.food_spots  add column if not exists photos jsonb not null default '[]'::jsonb;
+alter table public.destinations add column if not exists photos jsonb not null default '[]'::jsonb;
+
 -- ============================================================
 --  Row-Level Security — both signed-in accounts share all data.
---  Every table: enable RLS, then allow any authenticated user
---  full access. Nobody who isn't logged in can read or write.
 -- ============================================================
 do $$
 declare t text;
@@ -124,3 +130,17 @@ begin
     );
   end loop;
 end $$;
+
+-- ============================================================
+--  Storage bucket for photos (private; signed URLs in the app)
+-- ============================================================
+insert into storage.buckets (id, name, public)
+values ('photos', 'photos', false)
+on conflict (id) do nothing;
+
+drop policy if exists "photos read"   on storage.objects;
+drop policy if exists "photos insert" on storage.objects;
+drop policy if exists "photos delete" on storage.objects;
+create policy "photos read"   on storage.objects for select to authenticated using (bucket_id = 'photos');
+create policy "photos insert" on storage.objects for insert to authenticated with check (bucket_id = 'photos');
+create policy "photos delete" on storage.objects for delete to authenticated using (bucket_id = 'photos');

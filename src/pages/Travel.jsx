@@ -112,8 +112,16 @@ export default function Travel() {
       visited_on: row.visited_on || "",
       trip_days: row.trip_days ?? "",
       budget: row.budget ?? "",
+      photos: row.photos || [],
     });
     setEditing(row);
+  };
+
+  const setStatus = async (row, status, ev) => {
+    if (status === "Visited" && ev) burstConfetti(ev.clientX ?? window.innerWidth / 2, ev.clientY ?? 200);
+    const patch = { status };
+    if (status === "Visited" && !row.visited_on) patch.visited_on = new Date().toISOString().slice(0, 10);
+    await update("destinations", row.id, patch);
   };
 
   const geocode = async () => {
@@ -155,7 +163,7 @@ export default function Travel() {
   };
 
   return (
-    <div className="animate-fade-up">
+    <div>
       <PageHeader
         title="Travel"
         subtitle={`from ${HOME_BASE.name} · ${visitedKm} km explored · ${totalRouteKm} km on the full route`}
@@ -206,42 +214,60 @@ export default function Travel() {
           </MapContainer>
         </Card>
 
-        <div className="space-y-3">
+        <motion.div layout className="max-h-[460px] space-y-3 overflow-y-auto pr-1">
           {destinations.length === 0 && <Empty emoji="✈️">No destinations yet — add your first.</Empty>}
-          {destinations.map((d) => {
-            const visited = d.status === "Visited";
-            return (
-              <Card key={d.id} className="p-3.5">
-                <div className="flex items-start justify-between gap-2">
-                  <button
-                    className="min-w-0 text-left"
-                    onClick={() => d.lat != null && setFlyTarget({ lat: d.lat, lng: d.lng, t: Date.now() })}
-                  >
-                    <div className={`truncate font-semibold ${visited ? "text-ink-soft line-through" : ""}`}>
-                      <MapPin size={13} className="mr-1 inline text-coral" />
-                      {d.name}
+          <AnimatePresence mode="popLayout">
+            {destinations.map((d) => {
+              const visited = d.status === "Visited";
+              const photos = d.photos || [];
+              return (
+                <motion.div
+                  layout
+                  key={d.id}
+                  initial={{ opacity: 0, x: 16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 24 }}
+                  whileHover={{ y: -2 }}
+                  className="group"
+                >
+                  <Card className="p-3.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <button
+                        className="min-w-0 text-left"
+                        onClick={() => d.lat != null && setFlyTarget({ lat: d.lat, lng: d.lng, t: Date.now() })}
+                      >
+                        <div className={`truncate font-semibold ${visited ? "text-ink-soft line-through" : ""}`}>
+                          <MapPin size={13} className="mr-1 inline text-coral" />
+                          {d.name}
+                        </div>
+                        <div className="text-xs text-ink-soft">
+                          {d.country}
+                          {d.lat != null && <> · {round(haversineKm(HOME_BASE, d), 0)} km away</>}
+                          {d.trip_days ? ` · ${d.trip_days}d` : ""}
+                          {d.budget ? ` · ₹${d.budget}` : ""}
+                          {photos.length > 0 && (
+                            <span className="inline-flex items-center gap-0.5"> · <ImageIcon size={11} /> {photos.length}</span>
+                          )}
+                        </div>
+                      </button>
+                      <StatusPicker value={d.status} options={TRAVEL_STATUSES} tones={tone} onChange={(s) => setStatus(d, s)} />
                     </div>
-                    <div className="text-xs text-ink-soft">
-                      {d.country}
-                      {d.lat != null && <> · {round(haversineKm(HOME_BASE, d), 0)} km away</>}
-                      {d.trip_days ? ` · ${d.trip_days}d` : ""}
-                      {d.budget ? ` · ₹${d.budget}` : ""}
+                    {photos.length > 0 && <PhotoStrip photos={photos} className="mt-2" />}
+                    <div className="mt-2 flex justify-end gap-2 opacity-0 transition group-hover:opacity-100">
+                      <button onClick={() => openEdit(d)} className="text-ink-soft hover:text-coral">
+                        <Pencil size={15} />
+                      </button>
+                      <button onClick={() => del(d)} className="text-ink-soft hover:text-red-600">
+                        <Trash2 size={15} />
+                      </button>
                     </div>
-                  </button>
-                  <Badge tone={tone[d.status]}>{d.status}</Badge>
-                </div>
-                <div className="mt-2 flex justify-end gap-2">
-                  <button onClick={() => openEdit(d)} className="text-ink-soft hover:text-coral">
-                    <Pencil size={15} />
-                  </button>
-                  <button onClick={() => del(d)} className="text-ink-soft hover:text-red-600">
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </motion.div>
       </div>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? "Edit destination" : "New destination"} wide>
@@ -289,6 +315,9 @@ export default function Travel() {
           </div>
           <Field label="Notes">
             <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </Field>
+          <Field label="📷 Trip photos">
+            <PhotoUploader photos={form.photos} folder="travel" onChange={(photos) => setForm({ ...form, photos })} />
           </Field>
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="ghost" onClick={() => setEditing(null)}>

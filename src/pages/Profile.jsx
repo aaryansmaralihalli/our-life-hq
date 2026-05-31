@@ -43,7 +43,7 @@ export default function Profile() {
   };
 
   return (
-    <div className="animate-fade-up">
+    <div>
       <PageHeader title="Profile & Settings" subtitle={cloud ? `signed in as ${email}` : "local mode · this device only"} />
 
       <div className="grid gap-5 lg:grid-cols-2">

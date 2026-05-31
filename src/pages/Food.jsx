@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Plus, Pencil, Trash2, Image as ImageIcon } from "lucide-react";
 import { useData } from "../context/AppData";
 import {
   Card,
@@ -9,14 +10,18 @@ import {
   Textarea,
   Select,
   Modal,
-  Badge,
   ProgressBar,
   Empty,
   PageHeader,
   Chip,
+  StatusPicker,
   confirmDelete,
+  burstConfetti,
 } from "../components/ui";
-import { FOOD_STATUSES, todayISO } from "../lib/constants";
+import { AnimatedNumber } from "../components/motion";
+import PhotoUploader from "../components/PhotoUploader";
+import { PhotoStrip } from "../components/PhotoStrip";
+import { FOOD_STATUSES } from "../lib/constants";
 
 const tone = { "Want to try": "neutral", Booked: "low", Conquered: "good" };
 const stars = (n) => (n ? "★".repeat(n) + "☆".repeat(5 - n) : "—");
@@ -31,6 +36,7 @@ const blank = () => ({
   cost_for_two: "",
   who: "Both",
   notes: "",
+  photos: [],
 });
 
 export default function Food() {
@@ -56,6 +62,7 @@ export default function Food() {
       visited_on: row.visited_on || "",
       rating: row.rating ?? "",
       cost_for_two: row.cost_for_two ?? "",
+      photos: row.photos || [],
     });
     setEditing(row);
   };
@@ -73,12 +80,19 @@ export default function Food() {
     setEditing(null);
   };
 
+  const setStatus = async (row, status, ev) => {
+    if (status === "Conquered" && ev) burstConfetti(ev.clientX ?? window.innerWidth / 2, ev.clientY ?? 200);
+    const patch = { status };
+    if (status === "Conquered" && !row.visited_on) patch.visited_on = new Date().toISOString().slice(0, 10);
+    await update("food_spots", row.id, patch);
+  };
+
   const del = async (row) => {
     if (confirmDelete(`"${row.place}"`)) await remove("food_spots", row.id);
   };
 
   return (
-    <div className="animate-fade-up">
+    <div>
       <PageHeader
         title="Food"
         subtitle="spots to conquer"
@@ -92,9 +106,11 @@ export default function Food() {
       <Card className="mb-6 p-5">
         <div className="mb-2 flex items-center justify-between text-sm font-semibold">
           <span>
-            🍜 <b className="text-coral">{conquered}</b> of <b>{total}</b> spots conquered
+            🍜 <AnimatedNumber value={conquered} className="text-coral text-lg font-bold" /> of {total} spots conquered
           </span>
-          <span className="text-ink-soft">{pct}%</span>
+          <span className="text-ink-soft">
+            <AnimatedNumber value={pct} />%
+          </span>
         </div>
         <ProgressBar value={pct} />
       </Card>
@@ -110,39 +126,61 @@ export default function Food() {
       {filtered.length === 0 ? (
         <Empty emoji="🍽️">No spots here yet — add a place to try.</Empty>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {filtered.map((row) => (
-            <Card key={row.id} className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate font-semibold">{row.place}</div>
-                  <div className="text-xs text-ink-soft">
-                    {row.cuisine} · {row.city}
-                  </div>
-                </div>
-                <Badge tone={tone[row.status]}>{row.status}</Badge>
-              </div>
-              <div className="mt-3 flex items-center justify-between text-sm">
-                <span className="text-gold">{stars(row.rating)}</span>
-                <span className="text-ink-soft">
-                  {row.cost_for_two ? `₹${row.cost_for_two} for two` : ""}
-                </span>
-              </div>
-              {row.notes && <p className="mt-2 text-sm text-ink-soft">{row.notes}</p>}
-              <div className="mt-3 flex justify-end gap-2">
-                <button onClick={() => openEdit(row)} className="text-ink-soft hover:text-coral">
-                  <Pencil size={16} />
-                </button>
-                <button onClick={() => del(row)} className="text-ink-soft hover:text-red-600">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </Card>
-          ))}
-        </div>
+        <motion.div layout className="grid gap-3 sm:grid-cols-2">
+          <AnimatePresence mode="popLayout">
+            {filtered.map((row) => {
+              const photos = row.photos || [];
+              return (
+                <motion.div
+                  layout
+                  key={row.id}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 24 }}
+                  whileHover={{ y: -3 }}
+                  className="group"
+                >
+                  <Card className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">{row.place}</div>
+                        <div className="text-xs text-ink-soft">
+                          {row.cuisine} · {row.city}
+                        </div>
+                      </div>
+                      <StatusPicker value={row.status} options={FOOD_STATUSES} tones={tone} onChange={(s) => setStatus(row, s)} />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-sm">
+                      <span className="text-gold">{stars(row.rating)}</span>
+                      <span className="text-ink-soft">
+                        {row.cost_for_two ? `₹${row.cost_for_two} for two` : ""}
+                      </span>
+                    </div>
+                    {row.notes && <p className="mt-2 text-sm text-ink-soft">{row.notes}</p>}
+                    {photos.length > 0 && <PhotoStrip photos={photos} className="mt-3" />}
+                    <div className="mt-3 flex items-center justify-end gap-2 opacity-0 transition group-hover:opacity-100">
+                      {photos.length > 0 && (
+                        <span className="mr-auto inline-flex items-center gap-1 text-xs text-ink-soft opacity-100">
+                          <ImageIcon size={12} /> {photos.length}
+                        </span>
+                      )}
+                      <button onClick={() => openEdit(row)} className="text-ink-soft hover:text-coral">
+                        <Pencil size={16} />
+                      </button>
+                      <button onClick={() => del(row)} className="text-ink-soft hover:text-red-600">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </motion.div>
       )}
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? "Edit spot" : "New spot"}>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? "Edit spot" : "New spot"} wide>
         <form onSubmit={save} className="space-y-3">
           <Field label="Place">
             <Input autoFocus value={form.place} onChange={(e) => setForm({ ...form, place: e.target.value })} required />
@@ -176,6 +214,9 @@ export default function Food() {
           </div>
           <Field label="Notes">
             <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </Field>
+          <Field label="📷 Photos">
+            <PhotoUploader photos={form.photos} folder="food" onChange={(photos) => setForm({ ...form, photos })} />
           </Field>
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="ghost" onClick={() => setEditing(null)}>

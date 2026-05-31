@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   Target,
   UtensilsCrossed,
@@ -8,30 +9,29 @@ import {
   CalendarDays,
   TrendingUp,
   TrendingDown,
+  ArrowUpRight,
 } from "lucide-react";
 import { useData } from "../context/AppData";
 import { Card, Ring, Badge } from "../components/ui";
+import { AnimatedNumber, TiltCard, fadeUp, stagger } from "../components/motion";
 import { HOME_BASE } from "../lib/constants";
-import { haversineKm, bmi, bmiCategory, ageFromDob, round } from "../lib/formulas";
+import { haversineKm, bmi, bmiCategory, round } from "../lib/formulas";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 export default function Dashboard() {
   const { bucket_items, food_spots, destinations, gym_entries, health_entries, people } = useData();
 
-  // Bucket
   const bTotal = bucket_items.length;
   const bDone = bucket_items.filter((b) => b.status === "Done").length;
   const bPct = bTotal ? Math.round((bDone / bTotal) * 100) : 0;
 
-  // Food
   const fTotal = food_spots.length;
   const fDone = food_spots.filter((f) => f.status === "Conquered").length;
   const fRecent = [...food_spots]
     .filter((f) => f.visited_on)
     .sort((a, b) => (b.visited_on || "").localeCompare(a.visited_on || ""))[0];
 
-  // Travel
   const tTotal = destinations.length;
   const tVisited = destinations.filter((d) => d.status === "Visited").length;
   const visitedKm = round(
@@ -41,7 +41,6 @@ export default function Dashboard() {
     0
   );
 
-  // Gym — this month volume + per-person best e1RM + trend vs last month
   const thisMonth = todayISO().slice(0, 7);
   const lastMonthDate = new Date();
   lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
@@ -54,7 +53,6 @@ export default function Dashboard() {
   const bestE1rm = (name) =>
     round(Math.max(0, ...gym_entries.filter((e) => e.who === name).map((e) => e.e1rm || 0)), 1);
 
-  // Health per person
   const healthFor = (p) => {
     const rows = health_entries
       .filter((r) => r.who === p.name)
@@ -71,7 +69,6 @@ export default function Dashboard() {
     };
   };
 
-  // Upcoming
   const upcoming = [
     ...bucket_items
       .filter((b) => b.target_date && b.status !== "Done")
@@ -83,57 +80,83 @@ export default function Dashboard() {
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 5);
 
-  return (
-    <div className="animate-fade-up">
-      <div className="mb-7">
-        <h1 className="font-display text-4xl font-bold sm:text-5xl">
-          Look how far we've come 🌅
-        </h1>
-        <p className="mt-1 text-ink-soft">your shared life, at a glance</p>
-      </div>
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {/* Bucket */}
+  return (
+    <div>
+      {/* hero */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        className="mb-8"
+      >
+        <div className="mb-2 font-display text-sm italic text-ink-soft">{greeting} 🌅</div>
+        <h1 className="font-display text-4xl font-bold leading-[1.05] sm:text-6xl">
+          Look how far <br className="hidden sm:block" />
+          <span className="shimmer">we've come.</span>
+        </h1>
+        <p className="mt-3 max-w-md text-ink-soft">
+          Your shared life, in motion — {bDone + fDone + tVisited} milestones reached and counting.
+        </p>
+      </motion.div>
+
+      {/* metric grid */}
+      <motion.div
+        variants={stagger}
+        initial="hidden"
+        animate="show"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      >
         <MetricCard to="/bucket" icon={Target} title="Bucket list" tint="from-coral-light to-coral">
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-display text-3xl font-bold">
-                {bDone}<span className="text-ink-soft">/{bTotal}</span>
+              <div className="font-display text-4xl font-bold">
+                <AnimatedNumber value={bDone} />
+                <span className="text-ink-soft">/{bTotal}</span>
               </div>
               <div className="text-sm text-ink-soft">dreams fulfilled</div>
             </div>
-            <Ring value={bPct} />
+            <Ring value={bPct} size={72} />
           </div>
         </MetricCard>
 
-        {/* Food */}
         <MetricCard to="/food" icon={UtensilsCrossed} title="Food" tint="from-gold to-coral-light">
-          <div className="font-display text-3xl font-bold">
-            {fDone}<span className="text-ink-soft">/{fTotal}</span>
+          <div className="font-display text-4xl font-bold">
+            <AnimatedNumber value={fDone} />
+            <span className="text-ink-soft">/{fTotal}</span>
           </div>
           <div className="text-sm text-ink-soft">spots conquered</div>
-          {fRecent && <div className="mt-2 text-sm">Latest: <b>{fRecent.place}</b></div>}
+          {fRecent && (
+            <div className="mt-2 text-sm">
+              Latest: <b>{fRecent.place}</b>
+            </div>
+          )}
         </MetricCard>
 
-        {/* Travel */}
         <MetricCard to="/travel" icon={Plane} title="Travel" tint="from-sage to-[#4f6b54]">
-          <div className="font-display text-3xl font-bold">
-            {tVisited}<span className="text-ink-soft">/{tTotal}</span>
+          <div className="font-display text-4xl font-bold">
+            <AnimatedNumber value={tVisited} />
+            <span className="text-ink-soft">/{tTotal}</span>
           </div>
           <div className="text-sm text-ink-soft">destinations visited</div>
           <div className="mt-2 text-sm">
-            <b>{visitedKm.toLocaleString()} km</b> explored from {HOME_BASE.name}
+            <b>
+              <AnimatedNumber value={visitedKm} format={(v) => Math.round(v).toLocaleString()} /> km
+            </b>{" "}
+            explored from {HOME_BASE.name}
           </div>
         </MetricCard>
 
-        {/* Gym */}
         <MetricCard to="/gym" icon={Dumbbell} title="Gym" tint="from-[#7c6f9c] to-[#5a4f78]">
           <div className="flex items-center gap-2">
-            <div className="font-display text-3xl font-bold">{monthVol.toLocaleString()}</div>
+            <div className="font-display text-4xl font-bold">
+              <AnimatedNumber value={monthVol} format={(v) => Math.round(v).toLocaleString()} />
+            </div>
             {prevVol > 0 && (
               <Badge tone={volTrend >= 0 ? "good" : "high"}>
-                {volTrend >= 0 ? <TrendingUp size={12} className="inline" /> : <TrendingDown size={12} className="inline" />}{" "}
-                vs last mo
+                {volTrend >= 0 ? <TrendingUp size={12} className="inline" /> : <TrendingDown size={12} className="inline" />} vs last mo
               </Badge>
             )}
           </div>
@@ -147,7 +170,6 @@ export default function Dashboard() {
           </div>
         </MetricCard>
 
-        {/* Health */}
         <MetricCard to="/health" icon={HeartPulse} title="Health" tint="from-[#b5557a] to-[#8c3f5e]">
           <div className="space-y-1.5">
             {people.map((p) => {
@@ -172,7 +194,6 @@ export default function Dashboard() {
           </div>
         </MetricCard>
 
-        {/* Upcoming */}
         <MetricCard to="/bucket" icon={CalendarDays} title="Upcoming" tint="from-[#3f7d8c] to-[#2c5a66]">
           {upcoming.length === 0 ? (
             <div className="text-sm text-ink-soft">Nothing scheduled — dream something up!</div>
@@ -192,23 +213,31 @@ export default function Dashboard() {
             </div>
           )}
         </MetricCard>
-      </div>
+      </motion.div>
     </div>
   );
 }
 
 function MetricCard({ to, icon: Icon, title, tint, children }) {
   return (
-    <Link to={to}>
-      <Card className="h-full p-5 transition hover:-translate-y-1 hover:shadow-lg">
-        <div className="mb-3 flex items-center gap-2">
-          <span className={`grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br ${tint} text-white`}>
-            <Icon size={18} />
-          </span>
-          <span className="font-semibold">{title}</span>
-        </div>
-        {children}
-      </Card>
-    </Link>
+    <motion.div variants={fadeUp}>
+      <Link to={to}>
+        <TiltCard className="group h-full">
+          <Card className="relative h-full overflow-hidden p-5">
+            <ArrowUpRight
+              size={18}
+              className="absolute right-4 top-4 text-ink-soft opacity-0 transition group-hover:opacity-100"
+            />
+            <div className="mb-3 flex items-center gap-2">
+              <span className={`grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br ${tint} text-white shadow-md`}>
+                <Icon size={18} />
+              </span>
+              <span className="font-semibold">{title}</span>
+            </div>
+            {children}
+          </Card>
+        </TiltCard>
+      </Link>
+    </motion.div>
   );
 }
