@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/)",
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(curl -s http://localhost:5173/src/main.jsx -o /dev/null -w \"main.jsx HTTP %{http_code}\\\\n\")",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/__TRACKED_VAR__)",
+      "Bash(open http://localhost:5173/)"
+    ]
+  }
+}
