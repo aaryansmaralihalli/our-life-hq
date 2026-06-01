@@ -89,6 +89,7 @@ function Character3D({ skinUrl, spawn, baseRot, lookRef, controlled, posRef, out
   const footLift = useRef(0);
   const moving = useRef(false);
   const lastSent = useRef(0);
+  const lastSentPos = useRef(null); // last position we broadcast (to skip idle sends)
 
   useEffect(() => {
     let disposed = false;
@@ -158,12 +159,23 @@ function Character3D({ skinUrl, spawn, baseRot, lookRef, controlled, posRef, out
           player.rotation.y += (yaw - player.rotation.y) * 0.2;
         }
       }
-      // broadcast my position to the partner (throttled ~12/sec)
+      // Broadcast my position to the partner — but ONLY when it actually
+      // changed (so a tab left open while standing still sends nothing and
+      // can't burn through the realtime quota). Throttled to ~12/sec when moving.
       if (controlled && onBroadcast) {
         lastSent.current += delta;
         if (lastSent.current > 0.08) {
-          lastSent.current = 0;
-          onBroadcast({ x: target.x, y: target.y, z: target.z });
+          const p = lastSentPos.current;
+          const changed =
+            !p ||
+            Math.abs(p.x - target.x) > 0.001 ||
+            Math.abs(p.y - target.y) > 0.001 ||
+            Math.abs(p.z - target.z) > 0.001;
+          if (changed) {
+            lastSent.current = 0;
+            lastSentPos.current = { x: target.x, y: target.y, z: target.z };
+            onBroadcast(lastSentPos.current);
+          }
         }
       }
     } else {
