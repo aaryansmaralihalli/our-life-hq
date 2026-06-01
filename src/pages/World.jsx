@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Target, UtensilsCrossed, Plane, Dumbbell, HeartPulse, LayoutDashboard } from "lucide-react";
 import Character from "../world/Character";
 import Portal from "../world/Portal";
+import WorldBoundary from "../world/WorldBoundary";
 import { makeHerSkin, makeHimSkin } from "../world/skins";
 
 /* Scripted idle lines the couple "say" while you're not interacting. */
@@ -25,6 +26,14 @@ const OBJECTS = [
 ];
 
 export default function World() {
+  return (
+    <WorldBoundary>
+      <WorldScene />
+    </WorldBoundary>
+  );
+}
+
+function WorldScene() {
   const navigate = useNavigate();
   const herSkin = useMemo(() => makeHerSkin(), []);
   const himSkin = useMemo(() => makeHimSkin(), []);
