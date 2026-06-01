@@ -39,7 +39,7 @@ export default function Portal({ open, onClose }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-40 grid place-items-center bg-black/70 backdrop-blur-md"
+          className="fixed inset-0 z-[60] grid place-items-center bg-black/70 backdrop-blur-md"
           onClick={onClose}
         >
           {/* portal frame */}
@@ -103,7 +103,7 @@ export default function Portal({ open, onClose }) {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setZoom(null)}
-                className="fixed inset-0 z-50 grid place-items-center bg-black/90 p-6"
+                className="fixed inset-0 z-[70] grid place-items-center bg-black/90 p-6"
               >
                 <motion.img
                   src={zoom}

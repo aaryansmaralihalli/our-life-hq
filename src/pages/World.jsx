@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Target, UtensilsCrossed, Plane, Dumbbell, HeartPulse, LayoutDashboard } from "lucide-react";
 import Character from "../world/Character";
 import Portal from "../world/Portal";
 import WorldBoundary from "../world/WorldBoundary";
-import { makeHerSkin, makeHimSkin } from "../world/skins";
+import skinHer from "../world/assets/skin-her.png";
+import skinHim from "../world/assets/skin-him.png";
+import background from "../world/assets/background.jpg";
 
 /* Scripted idle lines the couple "say" while you're not interacting. */
 const IDLE_LINES = [
@@ -26,17 +29,21 @@ const OBJECTS = [
 ];
 
 export default function World() {
-  return (
+  // Render to document.body so the full-screen scene escapes Layout's blurred,
+  // max-width page-transition wrapper (a CSS filter creates a containing block
+  // that would otherwise trap our `position: fixed`).
+  return createPortal(
     <WorldBoundary>
       <WorldScene />
-    </WorldBoundary>
+    </WorldBoundary>,
+    document.body
   );
 }
 
 function WorldScene() {
   const navigate = useNavigate();
-  const herSkin = useMemo(() => makeHerSkin(), []);
-  const himSkin = useMemo(() => makeHimSkin(), []);
+  const herSkin = skinHer;
+  const himSkin = skinHim;
 
   const [look, setLook] = useState({ x: 0, y: 0 });
   const [idle, setIdle] = useState(false);
@@ -93,33 +100,36 @@ function WorldScene() {
   }, [onMove, scheduleIdle]);
 
   return (
-    <div className="relative min-h-[80vh] select-none">
-      {/* sky / ground backdrop */}
-      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-3xl">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#9fd0ff] via-[#cfe9ff] to-[#8fb96a]" />
-        {/* sun */}
-        <div className="absolute right-12 top-10 h-16 w-16 rounded-full bg-yellow-200 shadow-[0_0_60px_30px_rgba(255,240,170,0.7)]" />
-        {/* simple voxel clouds */}
-        <div className="absolute left-10 top-12 h-6 w-24 rounded bg-white/80" />
-        <div className="absolute left-1/3 top-6 h-6 w-32 rounded bg-white/70" />
-        {/* ground line */}
-        <div className="absolute bottom-0 h-1/4 w-full bg-[#6f9a4a]" />
+    <div className="fixed inset-0 z-0 select-none overflow-hidden">
+      {/* full-screen Minecraft background (with ground) */}
+      <img
+        src={background}
+        alt=""
+        className="absolute inset-0 -z-10 h-full w-full object-cover"
+        draggable={false}
+      />
+      {/* soft vignette so floating UI stays readable */}
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-black/10 via-transparent to-black/25" />
+
+      {/* title + hint, floating top */}
+      <div className="absolute left-1/2 top-6 z-10 -translate-x-1/2 text-center">
+        <h1 className="font-display text-3xl font-bold text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)] sm:text-4xl">
+          Our World
+        </h1>
+        <p className="text-sm text-white/90 drop-shadow-[0_1px_4px_rgba(0,0,0,0.7)]">
+          move your mouse — they'll follow you 👀
+        </p>
       </div>
 
-      <div className="mb-2 text-center">
-        <h1 className="font-display text-3xl font-bold sm:text-4xl">Our World</h1>
-        <p className="text-ink-soft">move your mouse — they'll follow you 👀</p>
-      </div>
-
-      {/* object shortcuts */}
-      <div className="mb-4 flex flex-wrap justify-center gap-2">
+      {/* object shortcuts, floating top-left under title */}
+      <div className="absolute left-1/2 top-24 z-10 flex max-w-[92vw] -translate-x-1/2 flex-wrap justify-center gap-2">
         {OBJECTS.map((o) => (
           <motion.button
             key={o.to}
             whileHover={{ y: -3, scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigate(o.to)}
-            className="glass flex items-center gap-1.5 rounded-2xl px-3 py-1.5 text-sm font-semibold shadow"
+            className="glass flex items-center gap-1.5 rounded-2xl px-3 py-1.5 text-sm font-semibold shadow-lg"
           >
             <span>{o.emoji}</span>
             {o.label}
@@ -127,8 +137,8 @@ function WorldScene() {
         ))}
       </div>
 
-      {/* characters + speech */}
-      <div className="relative mx-auto flex max-w-xl items-end justify-center pb-10">
+      {/* characters anchored to the ground (bottom of viewport) */}
+      <div className="absolute bottom-[12vh] left-1/2 z-10 flex -translate-x-1/2 items-end justify-center">
         {/* speech bubble */}
         <AnimatePresence>
           {idle && (
@@ -136,11 +146,11 @@ function WorldScene() {
               initial={{ opacity: 0, y: 10, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.9 }}
-              className="absolute left-1/2 top-0 z-20 -translate-x-1/2"
+              className="absolute -top-4 left-1/2 z-20 -translate-x-1/2"
             >
               <button
                 onClick={dismissIdle}
-                className="glass relative rounded-2xl px-4 py-2 text-center font-semibold shadow-lg"
+                className="glass relative whitespace-nowrap rounded-2xl px-4 py-2 text-center font-semibold shadow-lg"
                 title="dismiss"
               >
                 {line}
@@ -151,8 +161,8 @@ function WorldScene() {
         </AnimatePresence>
 
         <div className="flex items-end">
-          <Character skin={herSkin} lookAt={look} waving={waving} flip />
-          <Character skin={himSkin} lookAt={look} waving={waving} />
+          <Character skin={herSkin} width={260} height={400} lookAt={look} waving={waving} flip />
+          <Character skin={himSkin} width={260} height={400} lookAt={look} waving={waving} />
         </div>
 
         {/* the VHS tape — appears when idle, click → portal */}
@@ -167,7 +177,7 @@ function WorldScene() {
                 setPortalOpen(true);
                 dismissIdle();
               }}
-              className="absolute right-6 top-6 z-20 text-5xl drop-shadow-lg"
+              className="absolute -right-4 top-0 z-20 text-5xl drop-shadow-[0_3px_8px_rgba(0,0,0,0.6)]"
               title="Open our memories"
             >
               📼

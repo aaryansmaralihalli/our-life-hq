@@ -35,6 +35,11 @@ export default function Character({ skin, width = 220, height = 340, lookAt, wav
       viewer.controls.enableRotate = false;
       viewer.controls.enablePan = false;
     }
+    // transparent canvas so characters sit on the scene, not in a box
+    try {
+      viewer.background = null;
+      viewer.renderer.setClearColor(0x000000, 0);
+    } catch {}
 
     const baseYaw = flip ? -0.18 : 0.18;
 
