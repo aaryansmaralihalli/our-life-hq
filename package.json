@@ -25,6 +25,9 @@
     "skinview3d": "^3.4.1",
     "three": "^0.169.0"
   },
+  "overrides": {
+    "three": "$three"
+  },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.39.0",
     "@tailwindcss/vite": "^4.0.0",

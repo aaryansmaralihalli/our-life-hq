@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Target, UtensilsCrossed, Plane, Dumbbell, HeartPulse, LayoutDashboard } from "lucide-react";
 import Scene3D from "../world/Scene3D";
-import Character from "../world/Character";
 import Portal from "../world/Portal";
 import WorldBoundary from "../world/WorldBoundary";
 import skinHer from "../world/assets/skin-her.png";
@@ -43,11 +42,13 @@ export default function World() {
 function WorldScene() {
   const navigate = useNavigate();
 
-  const [look, setLook] = useState({ x: 0, y: 0 });
-  const [waving, setWaving] = useState(false);
   const [idle, setIdle] = useState(false);
   const [line, setLine] = useState(IDLE_LINES[0]);
   const [portalOpen, setPortalOpen] = useState(false);
+
+  // refs read by the R3F render loop (characters are now IN the scene)
+  const lookRef = useRef({ x: 0, y: 0 });
+  const waveRef = useRef(false);
 
   const idleTimer = useRef(null);
   const lineIndex = useRef(0);
@@ -67,8 +68,8 @@ function WorldScene() {
     (e) => {
       const x = (e.clientX / window.innerWidth) * 2 - 1;
       const y = (e.clientY / window.innerHeight) * 2 - 1;
-      setLook({ x, y });
-      setWaving(Math.abs(x) < 0.35 && y > 0.1);
+      lookRef.current = { x, y };
+      waveRef.current = Math.abs(x) < 0.35 && y > 0.1;
       if (!idleRef.current) scheduleIdle();
     },
     [scheduleIdle]
@@ -91,14 +92,8 @@ function WorldScene() {
 
   return (
     <div className="fixed inset-0 z-0 select-none overflow-hidden bg-[#120e1c]">
-      {/* live 3D Minecraft world (background layer) */}
-      <Scene3D />
-
-      {/* the proven skinview3d characters, composited on top, standing on the ground */}
-      <div className="pointer-events-none absolute bottom-[14vh] left-1/2 z-[2] flex -translate-x-1/2 items-end">
-        <Character skin={skinHer} width={230} height={360} lookAt={look} waving={waving} flip />
-        <Character skin={skinHim} width={230} height={360} lookAt={look} waving={waving} />
-      </div>
+      {/* live 3D Minecraft world with characters truly inside it */}
+      <Scene3D skinHer={skinHer} skinHim={skinHim} lookRef={lookRef} waveRef={waveRef} />
 
       {/* soft vignette for legibility */}
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/25 via-transparent to-black/40" />
