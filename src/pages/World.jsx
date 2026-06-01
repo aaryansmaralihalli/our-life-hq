@@ -46,36 +46,51 @@ function WorldScene() {
 
   const idleTimer = useRef(null);
   const lineIndex = useRef(0);
+  const idleRef = useRef(false); // mirror of `idle` for the move handler
 
-  // --- mouse intent: track cursor, reset idle timer on movement ---
-  const onMove = useCallback((e) => {
-    const x = (e.clientX / window.innerWidth) * 2 - 1; // [-1,1]
-    const y = (e.clientY / window.innerHeight) * 2 - 1;
-    setLook({ x, y });
-
-    // a quick wave if the cursor comes near the characters (center-bottom)
-    const nearCharacters = Math.abs(x) < 0.35 && y > 0.1;
-    setWaving(nearCharacters);
-
-    // movement = not idle; restart the "remember this?" countdown
-    setIdle(false);
+  const scheduleIdle = useCallback(() => {
     clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
       lineIndex.current = (lineIndex.current + 1) % IDLE_LINES.length;
       setLine(IDLE_LINES[lineIndex.current]);
+      idleRef.current = true;
       setIdle(true);
     }, 4000);
   }, []);
 
+  // --- mouse intent: always track cursor; but DON'T dismiss an active
+  // suggestion just because the mouse moved (so you can reach the tape). ---
+  const onMove = useCallback(
+    (e) => {
+      const x = (e.clientX / window.innerWidth) * 2 - 1; // [-1,1]
+      const y = (e.clientY / window.innerHeight) * 2 - 1;
+      setLook({ x, y }); // head/eyes keep following — that's fine
+
+      // wave when the cursor comes near the characters (center-bottom)
+      setWaving(Math.abs(x) < 0.35 && y > 0.1);
+
+      // only the idle countdown restarts on movement; once the suggestion is
+      // showing it stays put until dismissed/used.
+      if (!idleRef.current) scheduleIdle();
+    },
+    [scheduleIdle]
+  );
+
+  // dismiss the current suggestion (e.g. after opening the portal)
+  const dismissIdle = useCallback(() => {
+    idleRef.current = false;
+    setIdle(false);
+    scheduleIdle();
+  }, [scheduleIdle]);
+
   useEffect(() => {
     window.addEventListener("pointermove", onMove);
-    // kick off the first idle countdown
-    idleTimer.current = setTimeout(() => setIdle(true), 4000);
+    scheduleIdle(); // first countdown
     return () => {
       window.removeEventListener("pointermove", onMove);
       clearTimeout(idleTimer.current);
     };
-  }, [onMove]);
+  }, [onMove, scheduleIdle]);
 
   return (
     <div className="relative min-h-[80vh] select-none">
@@ -123,10 +138,14 @@ function WorldScene() {
               exit={{ opacity: 0, y: 10, scale: 0.9 }}
               className="absolute left-1/2 top-0 z-20 -translate-x-1/2"
             >
-              <div className="glass relative rounded-2xl px-4 py-2 text-center font-semibold shadow-lg">
+              <button
+                onClick={dismissIdle}
+                className="glass relative rounded-2xl px-4 py-2 text-center font-semibold shadow-lg"
+                title="dismiss"
+              >
                 {line}
                 <div className="absolute -bottom-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 bg-white/55" />
-              </div>
+              </button>
             </motion.div>
           )}
         </AnimatePresence>
@@ -144,7 +163,10 @@ function WorldScene() {
               animate={{ opacity: 1, y: [0, -10, 0], rotate: [0, 4, -4, 0] }}
               exit={{ opacity: 0, scale: 0 }}
               transition={{ y: { duration: 2.4, repeat: Infinity }, rotate: { duration: 5, repeat: Infinity } }}
-              onClick={() => setPortalOpen(true)}
+              onClick={() => {
+                setPortalOpen(true);
+                dismissIdle();
+              }}
               className="absolute right-6 top-6 z-20 text-5xl drop-shadow-lg"
               title="Open our memories"
             >
