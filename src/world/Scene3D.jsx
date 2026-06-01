@@ -1,79 +1,105 @@
 import { useEffect, useMemo, useRef, useState, Suspense } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF, OrbitControls, Environment, Html } from "@react-three/drei";
 import * as THREE from "three";
 import * as skinview3d from "skinview3d";
 import { loadImage, loadSkinToCanvas, inferModelType } from "skinview-utils";
-import worldUrl from "./assets/world3d/world.glb";
+import worldUrl from "./assets/world3d/house.glb";
+import { usePresence } from "./usePresence";
 
 /* ---- tunables ---- */
-const WORLD_SPAN = 16; // world normalized to this many units wide
-const CHAR_SCALE = 0.0028; // skinview3d player ~32u tall → in-world size
-const CHAR_GAP = 0.08; // half-spacing between the two (close but both visible)
-const CHAR_FORWARD = 0.45; // move forward (+z) onto solid ground (~9 blocks)
-const MOVE_SPEED = 6; // WASD/arrow walk speed (units/sec)
+const WORLD_SPAN = 80; // house width in units
+const CHAR_SCALE = 0.056; // skinview3d player ~32u tall → ~1.8u (human-sized)
+const CHAR_GAP = 1.6; // half-spacing between the two at spawn
+const CHAR_FORWARD = 0; // forward/back placement
+const FLOOR_FRACTION = 0.5; // which floor the couple stand on (0=low,1=roof)
+const GROUND_OFFSET = 0;
+const STEP = 1.6; // one grid step (block) distance per key press / joystick tick
+const STEP_COOLDOWN = 0.12; // seconds between repeated steps when held
+const MOVE_LERP = 10; // how snappily the character glides to its target cell
 
-/* GLTF world: auto-centered, auto-scaled, bottom sitting on y=0. */
+/* GLTF house: auto-centered, auto-scaled, sitting on y=0. */
 function WorldModel({ onReady }) {
   const { scene } = useGLTF(worldUrl);
   useEffect(() => {
-    scene.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const m of mats) {
-          if (m?.map) {
-            m.map.magFilter = THREE.NearestFilter;
-            m.map.minFilter = THREE.NearestMipmapNearestFilter;
-          }
-        }
-      }
-    });
+    scene.scale.setScalar(1);
+    scene.position.set(0, 0, 0);
+    scene.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(scene);
     const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
     box.getSize(size);
-    box.getCenter(center);
     const scale = WORLD_SPAN / Math.max(size.x, size.z);
     scene.scale.setScalar(scale);
+    scene.updateMatrixWorld(true);
     const box2 = new THREE.Box3().setFromObject(scene);
     const c2 = new THREE.Vector3();
     box2.getCenter(c2);
     scene.position.set(-c2.x, -box2.min.y, -c2.z);
     scene.updateMatrixWorld(true);
 
-    // Raycast straight DOWN from high above the center to find the real top
-    // surface of the island — no more guessing the height.
+    scene.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+        o.frustumCulled = false;
+        // material is alphaMode MASK; its alpha was clipping the whole house.
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          if (!m) continue;
+          m.alphaTest = 0;
+          m.transparent = false;
+          m.side = THREE.DoubleSide;
+          if (m.map) {
+            m.map.colorSpace = THREE.SRGBColorSpace;
+            m.map.magFilter = THREE.NearestFilter;
+            m.map.needsUpdate = true;
+          }
+          m.needsUpdate = true;
+        }
+      }
+    });
+
+    // find the floor surface the couple stand on
+    const finalBox = new THREE.Box3().setFromObject(scene);
+    const houseH = finalBox.max.y - finalBox.min.y;
+    const rayTop = finalBox.min.y + houseH * FLOOR_FRACTION;
     const ray = new THREE.Raycaster();
-    const top = new THREE.Box3().setFromObject(scene).max.y;
-    let groundY = 0;
-    // sample around where the couple stand (forward spot) for the right height
-    const samples = [
-      [0, CHAR_FORWARD], [0.1, CHAR_FORWARD], [-0.1, CHAR_FORWARD],
-      [0, CHAR_FORWARD + 0.1], [0, CHAR_FORWARD - 0.1], [0, 0],
-    ];
-    for (const [ox, oz] of samples) {
-      ray.set(new THREE.Vector3(ox, top + 5, oz), new THREE.Vector3(0, -1, 0));
+    let surfaceY = null;
+    for (const [sx, sz] of [
+      [0, CHAR_FORWARD], [CHAR_GAP, CHAR_FORWARD], [-CHAR_GAP, CHAR_FORWARD],
+      [0, CHAR_FORWARD + 2], [0, CHAR_FORWARD - 2],
+    ]) {
+      ray.set(new THREE.Vector3(sx, rayTop, sz), new THREE.Vector3(0, -1, 0));
       const hits = ray.intersectObject(scene, true);
-      if (hits.length) groundY = Math.max(groundY, hits[0].point.y);
+      if (hits.length) surfaceY = surfaceY == null ? hits[0].point.y : Math.max(surfaceY, hits[0].point.y);
     }
-    if (groundY === 0) groundY = top; // fallback: stand on the very top
-    onReady(groundY);
+    onReady((surfaceY ?? finalBox.min.y) + GROUND_OFFSET);
   }, [scene, onReady]);
   return <primitive object={scene} />;
 }
 
-/* A character truly inside the scene. groundY = world surface height. */
-function Character3D({ skinUrl, x, groundY, baseRot, lookRef, waveRef }) {
+/* A character in the scene. If `controlled`, its position is driven by `posRef`
+   (a shared THREE.Vector3 the input controller mutates); otherwise it stands at
+   its spawn. footLift keeps feet on the ground. */
+function Character3D({ skinUrl, spawn, baseRot, lookRef, controlled, posRef, outerGroupRef, remotePosRef, onBroadcast }) {
   const player = useMemo(() => new skinview3d.PlayerObject(), []);
-  const groupRef = useRef();
+  const localRef = useRef();
+  const groupRef = outerGroupRef || localRef;
   const anims = useRef(null);
   const footLift = useRef(0);
+  const moving = useRef(false);
+  const lastSent = useRef(0);
 
   useEffect(() => {
     let disposed = false;
     player.scale.setScalar(CHAR_SCALE);
+    player.rotation.set(0, 0, 0);
+    player.position.set(0, 0, 0);
+    player.updateMatrixWorld(true);
+    player.traverse((o) => { o.frustumCulled = false; });
+    const restBox = new THREE.Box3().setFromObject(player);
+    footLift.current = -restBox.min.y;
+
     loadImage(skinUrl).then((img) => {
       if (disposed) return;
       const canvas = document.createElement("canvas");
@@ -82,96 +108,157 @@ function Character3D({ skinUrl, x, groundY, baseRot, lookRef, waveRef }) {
       tex.magFilter = THREE.NearestFilter;
       tex.minFilter = THREE.NearestFilter;
       player.skin.map = tex;
-      try {
-        player.skin.modelType = inferModelType(canvas);
-      } catch {
-        player.skin.modelType = "default";
-      }
-      player.position.set(0, 0, 0);
-      const box = new THREE.Box3().setFromObject(player);
-      footLift.current = -box.min.y; // raise group so feet meet groundY
+      try { player.skin.modelType = inferModelType(canvas); } catch { player.skin.modelType = "default"; }
+      player.traverse((o) => {
+        o.frustumCulled = false;
+        if (o.isMesh && o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats) {
+            m.transparent = false; m.alphaTest = 0.5; m.depthWrite = true; m.depthTest = true; m.needsUpdate = true;
+          }
+        }
+      });
     });
     anims.current = {
       idle: new skinview3d.IdleAnimation(),
+      walk: Object.assign(new skinview3d.WalkingAnimation(), { speed: 1.2 }),
       wave: Object.assign(new skinview3d.WaveAnimation(), { speed: 1.4 }),
     };
-    return () => {
-      disposed = true;
-    };
+    return () => { disposed = true; };
   }, [skinUrl, player]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const a = anims.current;
     if (!a) return;
-    (waveRef.current ? a.wave : a.idle).update(player, delta);
-    player.position.y = 0; // cancel idle vertical bob (it sinks the model)
-    if (groupRef.current) groupRef.current.position.y = groundY + footLift.current;
-    const look = lookRef.current;
-    const targetYaw = baseRot + look.x * 0.5;
-    player.rotation.y += (targetYaw - player.rotation.y) * 0.08;
-    const head = player.skin?.head;
-    if (head) head.rotation.x += (-look.y * 0.35 - head.rotation.x) * 0.12;
+    const g = groupRef.current;
+
+    // choose animation: walk while moving (controlled), else idle
+    (moving.current ? a.walk : a.idle).update(player, delta);
+    player.position.y = 0;
+    player.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+
+    // Decide this character's target: locally-controlled → posRef; otherwise if
+    // the partner is driving it over the network → remotePosRef; else stand.
+    let target = null;
+    if (controlled && posRef) target = posRef.current;
+    else if (remotePosRef && remotePosRef.current) target = remotePosRef.current;
+
+    if (target && g) {
+      const cur = g.position;
+      const before = cur.clone();
+      cur.x += (target.x - cur.x) * Math.min(1, MOVE_LERP * delta);
+      cur.y += (target.y + footLift.current - cur.y) * Math.min(1, MOVE_LERP * delta);
+      cur.z += (target.z - cur.z) * Math.min(1, MOVE_LERP * delta);
+      const moved = cur.distanceTo(before);
+      moving.current = moved > 0.002;
+      if (moving.current) {
+        const dir = new THREE.Vector3(target.x - cur.x, 0, target.z - cur.z);
+        if (dir.lengthSq() > 0.0001) {
+          const yaw = Math.atan2(dir.x, dir.z);
+          player.rotation.y += (yaw - player.rotation.y) * 0.2;
+        }
+      }
+      // broadcast my position to the partner (throttled ~12/sec)
+      if (controlled && onBroadcast) {
+        lastSent.current += delta;
+        if (lastSent.current > 0.08) {
+          lastSent.current = 0;
+          onBroadcast({ x: target.x, y: target.y, z: target.z });
+        }
+      }
+    } else {
+      moving.current = false;
+      const look = lookRef.current;
+      const targetYaw = baseRot + look.x * 0.5;
+      player.rotation.y += (targetYaw - player.rotation.y) * 0.08;
+      const head = player.skin?.head;
+      if (head) head.rotation.x += (-look.y * 0.35 - head.rotation.x) * 0.12;
+    }
   });
 
+  const initialY = spawn[1] + 0; // group.y set each frame; start near ground
   return (
-    <group ref={groupRef} position={[x, groundY, CHAR_FORWARD]}>
+    <group ref={groupRef} position={[spawn[0], initialY, spawn[2]]}>
       <primitive object={player} />
     </group>
   );
 }
 
-/* Once we know groundY, frame the camera right in front of the couple's faces. */
-function FrameOnCharacters({ groundY }) {
-  const { camera } = useThree();
-  const done = useRef(false);
-  useFrame(() => {
-    if (done.current || groundY == null) return;
-    done.current = true;
-    const faceY = groundY + 0.07; // ~face height above the feet
-    // stand in front of the couple (who are at z = CHAR_FORWARD), looking at them
-    camera.position.set(0, faceY + 0.02, CHAR_FORWARD + 0.6);
-    camera.lookAt(0, faceY, CHAR_FORWARD);
-  });
-  return null;
-}
-
-/* Minecraft-style WASD / arrow movement: glide camera + target on XZ plane. */
-function KeyboardControls({ controlsRef }) {
+/* Grid-stepped movement (keyboard + joystick) for the controlled character.
+   Writes the target cell into posRef; camera-relative; Space/Shift = up/down. */
+function MovementController({ posRef, controlsRef, joyRef, vertRef }) {
   const keys = useRef({});
+  const cooldown = useRef(0);
+
   useEffect(() => {
     const map = {
       KeyW: "f", ArrowUp: "f", KeyS: "b", ArrowDown: "b",
       KeyA: "l", ArrowLeft: "l", KeyD: "r", ArrowRight: "r",
+      Space: "u", ShiftLeft: "d", ShiftRight: "d",
     };
     const down = (e) => { const k = map[e.code]; if (k) { keys.current[k] = true; e.preventDefault(); } };
     const up = (e) => { const k = map[e.code]; if (k) keys.current[k] = false; };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-    };
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, []);
+
   useFrame((state, delta) => {
-    const c = controlsRef.current;
-    if (!c) return;
-    const { f, b, l, r } = keys.current;
-    if (!f && !b && !l && !r) return;
+    if (!posRef.current) return;
+    cooldown.current -= delta;
+
+    const k = keys.current;
+    const joy = joyRef.current; // { x, y } from -1..1, or null
+    let f = (k.f ? 1 : 0) - (k.b ? 1 : 0);
+    let s = (k.r ? 1 : 0) - (k.l ? 1 : 0);
+    let v = (k.u ? 1 : 0) - (k.d ? 1 : 0);
+    if (joy) { f += -joy.y; s += joy.x; }
+    if (vertRef && vertRef.current) v += vertRef.current; // mobile up/down buttons
+
+    if (cooldown.current > 0) return;
+    if (Math.abs(f) < 0.3 && Math.abs(s) < 0.3 && v === 0) return;
+
+    // camera-relative forward/right on the ground plane
     const cam = state.camera;
     const fwd = new THREE.Vector3();
     cam.getWorldDirection(fwd);
-    fwd.y = 0;
-    fwd.normalize();
+    fwd.y = 0; fwd.normalize();
     const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
-    const move = new THREE.Vector3();
-    if (f) move.add(fwd);
-    if (b) move.sub(fwd);
-    if (r) move.add(right);
-    if (l) move.sub(right);
-    if (move.lengthSq() === 0) return;
-    move.normalize().multiplyScalar(MOVE_SPEED * delta);
-    cam.position.add(move);
-    c.target.add(move);
+
+    const stepVec = new THREE.Vector3();
+    if (Math.abs(f) >= 0.3) stepVec.addScaledVector(fwd, Math.sign(f));
+    if (Math.abs(s) >= 0.3) stepVec.addScaledVector(right, Math.sign(s));
+    if (stepVec.lengthSq() > 0) stepVec.normalize().multiplyScalar(STEP);
+    if (v !== 0) stepVec.y += Math.sign(v) * STEP;
+
+    posRef.current.add(stepVec);
+    cooldown.current = STEP_COOLDOWN;
+  });
+  return null;
+}
+
+/* Camera follows the controlled character: shift camera + orbit target by the
+   character's movement delta so trackpad orbit/pan still works on top. */
+function FollowCamera({ posRef, controlsRef, charGroupRef }) {
+  const prev = useRef(null);
+  useFrame(() => {
+    const controls = controlsRef.current;
+    const g = charGroupRef.current;
+    if (!controls || !g) return;
+    const p = g.position;
+    if (!prev.current) {
+      prev.current = p.clone();
+      controls.target.copy(p);
+      controls.object.position.set(p.x + 8, p.y + 6, p.z + 14);
+      controls.update();
+      return;
+    }
+    const delta = p.clone().sub(prev.current);
+    if (delta.lengthSq() > 0) {
+      controls.target.add(delta);
+      controls.object.position.add(delta);
+    }
+    prev.current.copy(p);
   });
   return null;
 }
@@ -184,34 +271,52 @@ function Loader() {
   );
 }
 
-export default function Scene3D({ skinHer, skinHim, lookRef, waveRef }) {
+export default function Scene3D({ skinHer, skinHim, lookRef, controlledChar, joyRef, vertRef }) {
   const controlsRef = useRef();
   const [groundY, setGroundY] = useState(null);
+
+  // shared target-cell + group ref for whichever character the user controls
+  const ctrlPosRef = useRef(null);
+  const ctrlGroupRef = useRef(null);
+
+  const boyControlled = controlledChar === "boy";
+  const girlControlled = controlledChar === "girl";
+
+  // real-time co-presence: broadcast mine, receive partner's
+  const { remoteRef, broadcast } = usePresence(controlledChar);
+
+  // initialize the controlled target SYNCHRONOUSLY once ground is known, so the
+  // render that gates on ctrlPosRef.current is true the same frame (a ref set
+  // in an effect wouldn't re-trigger that gate).
+  if (groundY != null && !ctrlPosRef.current) {
+    const spawnX = boyControlled ? CHAR_GAP : -CHAR_GAP;
+    ctrlPosRef.current = new THREE.Vector3(spawnX, groundY, CHAR_FORWARD);
+  }
 
   return (
     <Canvas
       shadows
       dpr={[1, 1.5]}
-      camera={{ position: [0, 2, 4], fov: 50, near: 0.01, far: 200 }}
+      camera={{ position: [0, 40, 80], fov: 50, near: 1, far: 4000 }}
       style={{ position: "absolute", inset: 0 }}
       gl={{ antialias: true }}
     >
       <color attach="background" args={["#120e1c"]} />
-      <fog attach="fog" args={["#1a1326", 30, 90]} />
+      <fog attach="fog" args={["#1a1326", 200, 900]} />
 
       <ambientLight intensity={1.05} />
       <directionalLight
-        position={[12, 20, 10]}
+        position={[200, 400, 200]}
         intensity={1.4}
         color="#fff0d6"
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-near={1}
-        shadow-camera-far={80}
-        shadow-camera-left={-20}
-        shadow-camera-right={20}
-        shadow-camera-top={20}
-        shadow-camera-bottom={-20}
+        shadow-camera-far={1200}
+        shadow-camera-left={-300}
+        shadow-camera-right={300}
+        shadow-camera-top={300}
+        shadow-camera-bottom={-300}
       />
       <hemisphereLight args={["#c9b6ff", "#3a2f55", 0.7]} />
 
@@ -220,11 +325,32 @@ export default function Scene3D({ skinHer, skinHim, lookRef, waveRef }) {
         <Environment preset="sunset" />
       </Suspense>
 
-      {groundY != null && (
+      {groundY != null && ctrlPosRef.current && (
         <>
-          <Character3D skinUrl={skinHer} x={-CHAR_GAP} groundY={groundY} baseRot={0.15} lookRef={lookRef} waveRef={waveRef} />
-          <Character3D skinUrl={skinHim} x={CHAR_GAP} groundY={groundY} baseRot={-0.15} lookRef={lookRef} waveRef={waveRef} />
-          <FrameOnCharacters groundY={groundY} />
+          <Character3D
+            skinUrl={skinHer}
+            spawn={[-CHAR_GAP, groundY, CHAR_FORWARD]}
+            baseRot={0.15}
+            lookRef={lookRef}
+            controlled={girlControlled}
+            posRef={girlControlled ? ctrlPosRef : null}
+            outerGroupRef={girlControlled ? ctrlGroupRef : null}
+            remotePosRef={girlControlled ? null : remoteRef}
+            onBroadcast={girlControlled ? broadcast : null}
+          />
+          <Character3D
+            skinUrl={skinHim}
+            spawn={[CHAR_GAP, groundY, CHAR_FORWARD]}
+            baseRot={-0.15}
+            lookRef={lookRef}
+            controlled={boyControlled}
+            posRef={boyControlled ? ctrlPosRef : null}
+            outerGroupRef={boyControlled ? ctrlGroupRef : null}
+            remotePosRef={boyControlled ? null : remoteRef}
+            onBroadcast={boyControlled ? broadcast : null}
+          />
+          <MovementController posRef={ctrlPosRef} controlsRef={controlsRef} joyRef={joyRef} vertRef={vertRef} />
+          <FollowCamera posRef={ctrlPosRef} controlsRef={controlsRef} charGroupRef={ctrlGroupRef} />
         </>
       )}
 
@@ -234,14 +360,10 @@ export default function Scene3D({ skinHer, skinHim, lookRef, waveRef }) {
         enableDamping
         dampingFactor={0.08}
         zoomToCursor
-        minDistance={0.2}
-        maxDistance={40}
+        minDistance={4}
+        maxDistance={400}
         maxPolarAngle={Math.PI / 2.05}
-        target={groundY != null ? [0, groundY + 0.07, CHAR_FORWARD] : [0, 1, 0]}
       />
-      <KeyboardControls controlsRef={controlsRef} />
     </Canvas>
   );
 }
-
-useGLTF.preload(worldUrl);

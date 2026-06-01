@@ -6,8 +6,15 @@ import { Target, UtensilsCrossed, Plane, Dumbbell, HeartPulse, LayoutDashboard }
 import Scene3D from "../world/Scene3D";
 import Portal from "../world/Portal";
 import WorldBoundary from "../world/WorldBoundary";
+import Joystick from "../world/Joystick";
+import { useAuth } from "../context/Auth";
 import skinHer from "../world/assets/skin-her.png";
 import skinHim from "../world/assets/skin-him.png";
+
+// Who controls which character, by login email. EDIT the girl's email once you
+// have Vibhav's exact Supabase login. Anyone who isn't the boy controls the girl.
+const BOY_EMAIL = "aaryansmaralihalli@gmail.com";
+const GIRL_EMAIL = "vibhavgangolli@gmail.com"; // ← placeholder, update when known
 
 /* Scripted idle lines the couple "say" while you're not interacting. */
 const IDLE_LINES = [
@@ -41,6 +48,10 @@ export default function World() {
 
 function WorldScene() {
   const navigate = useNavigate();
+  const { email } = useAuth();
+
+  // who do you control? boy if you're the boy's account, else the girl.
+  const controlledChar = email === BOY_EMAIL ? "boy" : "girl";
 
   const [idle, setIdle] = useState(false);
   const [line, setLine] = useState(IDLE_LINES[0]);
@@ -49,6 +60,8 @@ function WorldScene() {
   // refs read by the R3F render loop (characters are now IN the scene)
   const lookRef = useRef({ x: 0, y: 0 });
   const waveRef = useRef(false);
+  const joyRef = useRef(null); // {x,y} from on-screen joystick, or null
+  const vertRef = useRef(0); // -1/0/1 from mobile up/down buttons
 
   const idleTimer = useRef(null);
   const lineIndex = useRef(0);
@@ -93,7 +106,7 @@ function WorldScene() {
   return (
     <div className="fixed inset-0 z-0 select-none overflow-hidden bg-[#120e1c]">
       {/* live 3D Minecraft world with characters truly inside it */}
-      <Scene3D skinHer={skinHer} skinHim={skinHim} lookRef={lookRef} waveRef={waveRef} />
+      <Scene3D skinHer={skinHer} skinHim={skinHim} lookRef={lookRef} controlledChar={controlledChar} joyRef={joyRef} vertRef={vertRef} />
 
       {/* soft vignette for legibility */}
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/25 via-transparent to-black/40" />
@@ -104,7 +117,7 @@ function WorldScene() {
           Our World
         </h1>
         <p className="text-sm text-white/90 drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
-          move to look around · drag to orbit 👀
+          WASD/arrows to walk · Space/Shift up·down · drag to look 👀
         </p>
       </div>
 
@@ -160,6 +173,9 @@ function WorldScene() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* on-screen joystick + up/down (mobile/touch) */}
+      <Joystick joyRef={joyRef} vertRef={vertRef} />
 
       <Portal open={portalOpen} onClose={() => setPortalOpen(false)} />
     </div>
