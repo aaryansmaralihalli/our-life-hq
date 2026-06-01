@@ -162,6 +162,36 @@ body {
   }
 }
 
+/* ============================================================
+   Nether portal — purple swirling glow
+   ============================================================ */
+.portal-frame {
+  border: 10px solid #2a0f3a;
+  box-shadow: 0 0 60px 10px rgba(168, 85, 247, 0.6), inset 0 0 80px rgba(124, 58, 237, 0.7);
+  background: #1a0526;
+}
+.portal-swirl {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(192, 132, 252, 0.55), transparent 60%),
+    conic-gradient(
+      from 0deg,
+      #7c3aed,
+      #a855f7,
+      #6d28d9,
+      #c084fc,
+      #4c1d95,
+      #7c3aed
+    );
+  filter: blur(6px) saturate(140%);
+  opacity: 0.65;
+  animation: portal-spin 12s linear infinite;
+}
+@keyframes portal-spin {
+  to {
+    transform: rotate(360deg) scale(1.1);
+  }
+}
+
 /* leaflet tweaks */
 .leaflet-container {
   font-family: var(--font-sans);

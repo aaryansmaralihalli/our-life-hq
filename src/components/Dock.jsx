@@ -9,6 +9,7 @@ import {
 } from "framer-motion";
 import {
   Home,
+  Sparkles,
   Target,
   UtensilsCrossed,
   Plane,
@@ -19,6 +20,7 @@ import {
 
 const ITEMS = [
   { to: "/", label: "Home", icon: Home },
+  { to: "/world", label: "Our World", icon: Sparkles },
   { to: "/bucket", label: "Bucket List", icon: Target },
   { to: "/food", label: "Food", icon: UtensilsCrossed },
   { to: "/travel", label: "Travel", icon: Plane },
