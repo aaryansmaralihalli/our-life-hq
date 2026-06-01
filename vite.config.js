@@ -6,4 +6,6 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), cloudflare()],
+  // treat .glb 3D models as static assets (importable as URLs)
+  assetsInclude: ["**/*.glb"],
 });
