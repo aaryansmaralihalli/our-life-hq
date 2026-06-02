@@ -13,20 +13,38 @@ export default function ContactCutscene({ open, onClose }) {
   const videoRef = useRef(null);
   const [phase, setPhase] = useState("flash"); // flash → video
   const [videoOk, setVideoOk] = useState(true);
+  const [needTap, setNeedTap] = useState(false); // mobile autoplay was blocked
 
   useEffect(() => {
     if (!open) return;
     setPhase("flash");
     setVideoOk(true);
-    const t = setTimeout(() => setPhase("video"), 900); // flash duration
+    setNeedTap(false);
+    const t = setTimeout(() => setPhase("video"), 900);
     return () => clearTimeout(t);
   }, [open]);
 
+  // Mobile (iOS/Android) blocks programmatic play() outside a tap gesture.
+  // Strategy: start MUTED (muted autoplay is allowed on mobile); if even that
+  // is blocked, show a tap-to-play button. Unmute once it's actually playing.
   useEffect(() => {
-    if (phase === "video" && videoRef.current) {
-      videoRef.current.play().catch(() => {}); // autoplay may need the file present
-    }
+    const v = videoRef.current;
+    if (phase !== "video" || !v) return;
+    v.muted = true;
+    v.play()
+      .then(() => {
+        // playing — try to unmute (may be ignored on some devices, that's ok)
+        v.muted = false;
+      })
+      .catch(() => setNeedTap(true));
   }, [phase]);
+
+  const tapToPlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = false;
+    v.play().then(() => setNeedTap(false)).catch(() => {});
+  };
 
   return (
     <AnimatePresence>
@@ -70,21 +88,32 @@ export default function ContactCutscene({ open, onClose }) {
               className="absolute inset-0 grid place-items-center"
             >
               {videoOk ? (
-                // Constrain against the VIEWPORT directly (vh/vw), not a parent —
-                // a parent grid item has no definite height, so max-h-full was
-                // unbounded and let the portrait video overflow off-screen.
-                // 100vh/100vw + object-contain = whole video always fits, no crop.
-                <video
-                  ref={videoRef}
-                  src={VIDEO_SRC}
-                  className="object-contain"
-                  style={{ maxHeight: "100vh", maxWidth: "100vw", height: "auto", width: "auto" }}
-                  autoPlay
-                  playsInline
-                  controls={false}
-                  onEnded={onClose}
-                  onError={() => setVideoOk(false)}
-                />
+                <>
+                  {/* viewport-constrained so the portrait clip always fits, no crop/stretch */}
+                  <video
+                    ref={videoRef}
+                    src={VIDEO_SRC}
+                    className="object-contain"
+                    style={{ maxHeight: "100vh", maxWidth: "100vw", height: "auto", width: "auto" }}
+                    autoPlay
+                    muted
+                    playsInline
+                    controls={false}
+                    onEnded={onClose}
+                    onError={() => setVideoOk(false)}
+                  />
+                  {/* mobile fallback: tap to play (if autoplay was blocked) */}
+                  {needTap && (
+                    <button
+                      onClick={tapToPlay}
+                      className="absolute inset-0 grid place-items-center bg-black/40"
+                    >
+                      <span className="grid h-20 w-20 place-items-center rounded-full bg-white/90 text-3xl shadow-xl">
+                        ▶
+                      </span>
+                    </button>
+                  )}
+                </>
               ) : (
                 <div className="grid h-full w-full place-items-center p-8 text-center">
                   <div>

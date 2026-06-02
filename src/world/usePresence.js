@@ -2,39 +2,43 @@ import { useEffect, useRef } from "react";
 import { supabase, SUPABASE_READY } from "../lib/supabase";
 
 /* Real-time co-presence over a Supabase broadcast channel.
-   - You broadcast your controlled character's target position.
-   - The partner's browser receives it and moves the OTHER character to match.
-   No DB writes — broadcast is ephemeral and low-latency.
+   - You broadcast your controlled character's position (+ a heartbeat so the
+     partner still counts you "online" even while you stand still).
+   - You can also broadcast a one-off "contact" event so BOTH devices play the
+     cutscene together (regardless of who detected the contact).
 
-   Returns { remoteRef, broadcast }:
-   - remoteRef.current = latest {x,y,z} the partner sent (or null)
-   - broadcast(pos) = send your position (call throttled) */
-export function usePresence(controlledChar) {
+   Returns { remoteRef, broadcast, partnerOnlineRef, sendContact, onContact } */
+export function usePresence(controlledChar, onContactRef) {
   const remoteRef = useRef(null);
   const channelRef = useRef(null);
-  const partnerOnlineRef = useRef(false); // true while partner is broadcasting
+  const partnerOnlineRef = useRef(false);
   const lastSeen = useRef(0);
+  const lastBeat = useRef(0);
 
   useEffect(() => {
     if (!SUPABASE_READY) return;
     const channel = supabase.channel("our-world", {
-      config: { broadcast: { self: false } }, // don't echo our own messages
+      config: { broadcast: { self: false } },
     });
     channel
       .on("broadcast", { event: "move" }, ({ payload }) => {
-        // only react to the partner's character (not our own id)
         if (payload && payload.char && payload.char !== controlledChar) {
-          remoteRef.current = { x: payload.x, y: payload.y, z: payload.z };
+          if (payload.x != null) remoteRef.current = { x: payload.x, y: payload.y, z: payload.z };
           partnerOnlineRef.current = true;
           lastSeen.current = Date.now();
+        }
+      })
+      .on("broadcast", { event: "contact" }, ({ payload }) => {
+        // partner says they touched us → play the cutscene on this device too
+        if (payload && payload.char && payload.char !== controlledChar) {
+          onContactRef?.current?.();
         }
       })
       .subscribe();
     channelRef.current = channel;
 
-    // mark partner offline if we haven't heard from them in 5s
     const t = setInterval(() => {
-      if (Date.now() - lastSeen.current > 5000) partnerOnlineRef.current = false;
+      if (Date.now() - lastSeen.current > 6000) partnerOnlineRef.current = false;
     }, 1000);
 
     return () => {
@@ -42,8 +46,10 @@ export function usePresence(controlledChar) {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [controlledChar]);
+  }, [controlledChar, onContactRef]);
 
+  // Broadcast position when it changed, OR a heartbeat every ~2s while still, so
+  // a stationary player still registers as "online" to their partner.
   const broadcast = (pos) => {
     const ch = channelRef.current;
     if (!ch) return;
@@ -54,5 +60,20 @@ export function usePresence(controlledChar) {
     });
   };
 
-  return { remoteRef, broadcast, partnerOnlineRef };
+  const heartbeat = () => {
+    const ch = channelRef.current;
+    if (!ch) return;
+    const now = Date.now();
+    if (now - lastBeat.current < 2000) return;
+    lastBeat.current = now;
+    ch.send({ type: "broadcast", event: "move", payload: { char: controlledChar } });
+  };
+
+  const sendContact = () => {
+    const ch = channelRef.current;
+    if (!ch) return;
+    ch.send({ type: "broadcast", event: "contact", payload: { char: controlledChar } });
+  };
+
+  return { remoteRef, broadcast, heartbeat, partnerOnlineRef, sendContact };
 }

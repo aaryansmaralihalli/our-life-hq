@@ -82,7 +82,7 @@ function WorldModel({ onReady }) {
 /* A character in the scene. If `controlled`, its position is driven by `posRef`
    (a shared THREE.Vector3 the input controller mutates); otherwise it stands at
    its spawn. footLift keeps feet on the ground. */
-function Character3D({ skinUrl, spawn, baseRot, lookRef, controlled, posRef, outerGroupRef, remotePosRef, onBroadcast }) {
+function Character3D({ skinUrl, spawn, baseRot, lookRef, controlled, posRef, outerGroupRef, remotePosRef, onBroadcast, onHeartbeat }) {
   const player = useMemo(() => new skinview3d.PlayerObject(), []);
   const localRef = useRef();
   const groupRef = outerGroupRef || localRef;
@@ -160,9 +160,9 @@ function Character3D({ skinUrl, spawn, baseRot, lookRef, controlled, posRef, out
           player.rotation.y += (yaw - player.rotation.y) * 0.2;
         }
       }
-      // Broadcast my position to the partner — but ONLY when it actually
-      // changed (so a tab left open while standing still sends nothing and
-      // can't burn through the realtime quota). Throttled to ~12/sec when moving.
+      // Broadcast my position when it changed (≤~12/sec). When standing still,
+      // send a lightweight heartbeat (~every 2s) so the partner still counts me
+      // online — needed so contact fires on BOTH devices, not just the mover's.
       if (controlled && onBroadcast) {
         lastSent.current += delta;
         if (lastSent.current > 0.08) {
@@ -176,6 +176,8 @@ function Character3D({ skinUrl, spawn, baseRot, lookRef, controlled, posRef, out
             lastSent.current = 0;
             lastSentPos.current = { x: target.x, y: target.y, z: target.z };
             onBroadcast(lastSentPos.current);
+          } else if (onHeartbeat) {
+            onHeartbeat(); // internally throttled to ~2s
           }
         }
       }
@@ -318,8 +320,20 @@ export default function Scene3D({ skinHer, skinHim, lookRef, controlledChar, joy
   const boyControlled = controlledChar === "boy";
   const girlControlled = controlledChar === "girl";
 
+  // keep the latest onContact callback in a ref so the channel handler (set up
+  // once) always calls the current one when the PARTNER signals contact.
+  const onContactRef = useRef(onContact);
+  onContactRef.current = onContact;
+
   // real-time co-presence: broadcast mine, receive partner's
-  const { remoteRef, broadcast, partnerOnlineRef } = usePresence(controlledChar);
+  const { remoteRef, broadcast, heartbeat, partnerOnlineRef, sendContact } =
+    usePresence(controlledChar, onContactRef);
+
+  // fire locally AND tell the partner, so BOTH devices play the cutscene
+  const handleContact = () => {
+    sendContact();
+    onContact?.();
+  };
 
   // initialize the controlled target SYNCHRONOUSLY once ground is known, so the
   // render that gates on ctrlPosRef.current is true the same frame (a ref set
@@ -373,6 +387,7 @@ export default function Scene3D({ skinHer, skinHim, lookRef, controlledChar, joy
             outerGroupRef={girlControlled ? ctrlGroupRef : partnerGroupRef}
             remotePosRef={girlControlled ? null : remoteRef}
             onBroadcast={girlControlled ? broadcast : null}
+            onHeartbeat={girlControlled ? heartbeat : null}
           />
           <Character3D
             skinUrl={skinHim}
@@ -384,6 +399,7 @@ export default function Scene3D({ skinHer, skinHim, lookRef, controlledChar, joy
             outerGroupRef={boyControlled ? ctrlGroupRef : partnerGroupRef}
             remotePosRef={boyControlled ? null : remoteRef}
             onBroadcast={boyControlled ? broadcast : null}
+            onHeartbeat={boyControlled ? heartbeat : null}
           />
           <MovementController posRef={ctrlPosRef} controlsRef={controlsRef} joyRef={joyRef} vertRef={vertRef} />
           <FollowCamera posRef={ctrlPosRef} controlsRef={controlsRef} charGroupRef={ctrlGroupRef} />
@@ -392,7 +408,7 @@ export default function Scene3D({ skinHer, skinHim, lookRef, controlledChar, joy
               aGroupRef={ctrlGroupRef}
               bGroupRef={partnerGroupRef}
               partnerOnlineRef={partnerOnlineRef}
-              onContact={onContact}
+              onContact={handleContact}
             />
           )}
         </>
