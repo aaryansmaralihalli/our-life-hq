@@ -7,6 +7,7 @@ import Scene3D from "../world/Scene3D";
 import Portal from "../world/Portal";
 import WorldBoundary from "../world/WorldBoundary";
 import Joystick from "../world/Joystick";
+import ContactCutscene from "../world/ContactCutscene";
 import { useAuth } from "../context/Auth";
 import skinHer from "../world/assets/skin-her.png";
 import skinHim from "../world/assets/skin-him.png";
@@ -56,6 +57,7 @@ function WorldScene() {
   const [idle, setIdle] = useState(false);
   const [line, setLine] = useState(IDLE_LINES[0]);
   const [portalOpen, setPortalOpen] = useState(false);
+  const [cutscene, setCutscene] = useState(false);
 
   // refs read by the R3F render loop (characters are now IN the scene)
   const lookRef = useRef({ x: 0, y: 0 });
@@ -106,7 +108,15 @@ function WorldScene() {
   return (
     <div className="fixed inset-0 z-0 select-none overflow-hidden bg-[#120e1c]">
       {/* live 3D Minecraft world with characters truly inside it */}
-      <Scene3D skinHer={skinHer} skinHim={skinHim} lookRef={lookRef} controlledChar={controlledChar} joyRef={joyRef} vertRef={vertRef} />
+      <Scene3D
+        skinHer={skinHer}
+        skinHim={skinHim}
+        lookRef={lookRef}
+        controlledChar={controlledChar}
+        joyRef={joyRef}
+        vertRef={vertRef}
+        onContact={() => setCutscene(true)}
+      />
 
       {/* soft vignette for legibility */}
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/25 via-transparent to-black/40" />
@@ -176,6 +186,9 @@ function WorldScene() {
 
       {/* on-screen joystick + up/down (mobile/touch) */}
       <Joystick joyRef={joyRef} vertRef={vertRef} />
+
+      {/* plays when the two characters meet */}
+      <ContactCutscene open={cutscene} onClose={() => setCutscene(false)} />
 
       <Portal open={portalOpen} onClose={() => setPortalOpen(false)} />
     </div>

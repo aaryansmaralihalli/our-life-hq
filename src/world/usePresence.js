@@ -12,6 +12,8 @@ import { supabase, SUPABASE_READY } from "../lib/supabase";
 export function usePresence(controlledChar) {
   const remoteRef = useRef(null);
   const channelRef = useRef(null);
+  const partnerOnlineRef = useRef(false); // true while partner is broadcasting
+  const lastSeen = useRef(0);
 
   useEffect(() => {
     if (!SUPABASE_READY) return;
@@ -23,11 +25,20 @@ export function usePresence(controlledChar) {
         // only react to the partner's character (not our own id)
         if (payload && payload.char && payload.char !== controlledChar) {
           remoteRef.current = { x: payload.x, y: payload.y, z: payload.z };
+          partnerOnlineRef.current = true;
+          lastSeen.current = Date.now();
         }
       })
       .subscribe();
     channelRef.current = channel;
+
+    // mark partner offline if we haven't heard from them in 5s
+    const t = setInterval(() => {
+      if (Date.now() - lastSeen.current > 5000) partnerOnlineRef.current = false;
+    }, 1000);
+
     return () => {
+      clearInterval(t);
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
@@ -43,5 +54,5 @@ export function usePresence(controlledChar) {
     });
   };
 
-  return { remoteRef, broadcast };
+  return { remoteRef, broadcast, partnerOnlineRef };
 }

@@ -17,6 +17,7 @@ const GROUND_OFFSET = 0;
 const STEP = 1.6; // one grid step (block) distance per key press / joystick tick
 const STEP_COOLDOWN = 0.12; // seconds between repeated steps when held
 const MOVE_LERP = 10; // how snappily the character glides to its target cell
+const CONTACT_DIST = 2.2; // how close the two must be to trigger the "contact" cutscene
 
 /* GLTF house: auto-centered, auto-scaled, sitting on y=0. */
 function WorldModel({ onReady }) {
@@ -275,6 +276,28 @@ function FollowCamera({ posRef, controlsRef, charGroupRef }) {
   return null;
 }
 
+/* Watches the distance between the two characters. When they come within
+   CONTACT_DIST while BOTH are present (partner online), fires onContact once.
+   Resets (re-arms) only after they move apart again, so it won't spam. */
+function ContactDetector({ aGroupRef, bGroupRef, partnerOnlineRef, onContact }) {
+  const armed = useRef(true);
+  useFrame(() => {
+    const a = aGroupRef.current;
+    const b = bGroupRef.current;
+    if (!a || !b) return;
+    // only count it as "together" if the partner is actually online
+    if (!partnerOnlineRef.current) return;
+    const d = a.position.distanceTo(b.position);
+    if (d < CONTACT_DIST && armed.current) {
+      armed.current = false;
+      onContact();
+    } else if (d > CONTACT_DIST * 1.8) {
+      armed.current = true; // re-arm once they've separated
+    }
+  });
+  return null;
+}
+
 function Loader() {
   return (
     <Html center>
@@ -283,19 +306,20 @@ function Loader() {
   );
 }
 
-export default function Scene3D({ skinHer, skinHim, lookRef, controlledChar, joyRef, vertRef }) {
+export default function Scene3D({ skinHer, skinHim, lookRef, controlledChar, joyRef, vertRef, onContact }) {
   const controlsRef = useRef();
   const [groundY, setGroundY] = useState(null);
 
-  // shared target-cell + group ref for whichever character the user controls
+  // shared target-cell + group refs for both characters
   const ctrlPosRef = useRef(null);
-  const ctrlGroupRef = useRef(null);
+  const ctrlGroupRef = useRef(null); // the character I control
+  const partnerGroupRef = useRef(null); // the partner's character
 
   const boyControlled = controlledChar === "boy";
   const girlControlled = controlledChar === "girl";
 
   // real-time co-presence: broadcast mine, receive partner's
-  const { remoteRef, broadcast } = usePresence(controlledChar);
+  const { remoteRef, broadcast, partnerOnlineRef } = usePresence(controlledChar);
 
   // initialize the controlled target SYNCHRONOUSLY once ground is known, so the
   // render that gates on ctrlPosRef.current is true the same frame (a ref set
@@ -346,7 +370,7 @@ export default function Scene3D({ skinHer, skinHim, lookRef, controlledChar, joy
             lookRef={lookRef}
             controlled={girlControlled}
             posRef={girlControlled ? ctrlPosRef : null}
-            outerGroupRef={girlControlled ? ctrlGroupRef : null}
+            outerGroupRef={girlControlled ? ctrlGroupRef : partnerGroupRef}
             remotePosRef={girlControlled ? null : remoteRef}
             onBroadcast={girlControlled ? broadcast : null}
           />
@@ -357,12 +381,20 @@ export default function Scene3D({ skinHer, skinHim, lookRef, controlledChar, joy
             lookRef={lookRef}
             controlled={boyControlled}
             posRef={boyControlled ? ctrlPosRef : null}
-            outerGroupRef={boyControlled ? ctrlGroupRef : null}
+            outerGroupRef={boyControlled ? ctrlGroupRef : partnerGroupRef}
             remotePosRef={boyControlled ? null : remoteRef}
             onBroadcast={boyControlled ? broadcast : null}
           />
           <MovementController posRef={ctrlPosRef} controlsRef={controlsRef} joyRef={joyRef} vertRef={vertRef} />
           <FollowCamera posRef={ctrlPosRef} controlsRef={controlsRef} charGroupRef={ctrlGroupRef} />
+          {onContact && (
+            <ContactDetector
+              aGroupRef={ctrlGroupRef}
+              bGroupRef={partnerGroupRef}
+              partnerOnlineRef={partnerOnlineRef}
+              onContact={onContact}
+            />
+          )}
         </>
       )}
 
