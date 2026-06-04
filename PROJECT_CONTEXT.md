@@ -7,7 +7,7 @@ hours (so they're never repeated), and clear DO / DON'T rules.
 > Original product brief is in [`context.md`](context.md). This file is the
 > engineering reality on top of it.
 
-_Last updated: 2026-06-01_
+_Last updated: 2026-06-04_
 
 ---
 
@@ -89,13 +89,16 @@ src/
   world/
     Scene3D.jsx            ⭐ the 3D scene (house + characters + controls + net)
     Joystick.jsx           mobile touch joystick + up/down fly buttons
-    usePresence.js         Supabase Realtime broadcast (co-presence)
+    usePresence.js         Supabase Realtime broadcast (co-presence + heartbeat + contact event)
+    ContactCutscene.jsx    flash → fullscreen video when the two characters meet
     Portal.jsx             Nether-portal photo gallery overlay
     WorldBoundary.jsx      error boundary so /world never blanks silently
     Character.jsx          ⚠️ UNUSED (old composite approach; safe to delete)
     assets/
       skin-her.png, skin-him.png   64x64 Minecraft skins
       world3d/house.glb            the floating house (Draco, ~3MB)
+public/
+  contact.mp4              the cutscene video (served by URL, not imported)
 ```
 
 ---
@@ -138,13 +141,26 @@ This took many iterations. Architecture as it stands:
 - **Per-user control** (in `World.jsx`): `BOY_EMAIL` / `GIRL_EMAIL` constants
   map login → which character you drive. **`GIRL_EMAIL` is a PLACEHOLDER**
   (`vibhavgangolli@gmail.com`) — update it to Vibhav's real Supabase login.
-- **Co-presence:** each client broadcasts its character's position (~12/sec, and
-  ONLY when it changed — see §6 efficiency), partner's browser moves the other
-  character to match. TCP/WebSocket under the hood (browsers can't do UDP).
+- **Co-presence:** each client broadcasts its character's position (~12/sec when
+  moving, ONLY when it changed — see §6 #10), PLUS a **heartbeat ~every 2s while
+  still** (so a stationary partner still counts as "online" — see §6 #11).
+  Partner's browser moves the other character to match. TCP/WebSocket under the
+  hood (browsers can't do UDP). `partnerOnlineRef` flips false after ~6s silence.
+
+### Contact cutscene (`ContactCutscene.jsx` + `ContactDetector` in Scene3D)
+- When both are online and the two characters come within `CONTACT_DIST`,
+  `ContactDetector` fires `handleContact`, which (a) plays the cutscene locally
+  AND (b) **broadcasts a `contact` event** so the PARTNER's device plays it too —
+  both screens show it in sync. Re-arms after they separate (won't spam).
+- Cutscene = white flash + bursting 💖 (~0.9s) → fullscreen **`public/contact.mp4`**.
+- Video is **viewport-constrained** (`maxHeight:100vh; maxWidth:100vw; object-contain`)
+  so the portrait clip never stretches or crops on laptop or mobile.
+- **Mobile autoplay:** starts MUTED (allowed on mobile), unmutes once playing; if
+  even that's blocked, shows a ▶ tap-to-play button. See §6 #12.
 
 ### Tunable constants at the top of `Scene3D.jsx`
 `WORLD_SPAN`, `CHAR_SCALE`, `CHAR_GAP`, `CHAR_FORWARD`, `FLOOR_FRACTION`,
-`GROUND_OFFSET`, `STEP`, `STEP_COOLDOWN`, `MOVE_LERP`. Tune these for
+`GROUND_OFFSET`, `STEP`, `STEP_COOLDOWN`, `MOVE_LERP`, `CONTACT_DIST`. Tune these for
 placement/feel — they're intentionally surfaced.
 
 ---
@@ -204,6 +220,19 @@ These are the expensive lessons. Each is a real fix that's load-bearing.
     still. Fixed: only broadcast when position actually changed (§ commit
     4f25394). Keep this — it's what keeps Supabase Realtime usage near zero.
 
+11. **Cutscene fired on only one device.** Caused by #10: a STILL partner sends
+    nothing → the moving player's device marks them offline → the contact gate
+    blocks it there. Fixed with a **heartbeat** (~2s while still) so a stationary
+    player stays "online", AND broadcasting a **`contact` event** so both devices
+    play in sync regardless of who detected the touch. Don't reintroduce a
+    presence/contact path that depends on continuous movement.
+
+12. **Video didn't autoplay on mobile.** iOS/Android block programmatic
+    `play()` outside a tap gesture. Fixed: start **muted** (muted autoplay is
+    allowed), unmute once playing, fall back to a ▶ **tap-to-play** button.
+    Don't remove the muted-first logic or the tap fallback. (Some phones may stay
+    muted until tapped — browser policy, unavoidable.)
+
 ---
 
 ## 7. Free-tier safety (verified)
@@ -233,6 +262,12 @@ folder, NOT in git.
 - Keep tunables at the top of `Scene3D.jsx`; adjust those rather than scattering
   magic numbers.
 - Update `GIRL_EMAIL` in `World.jsx` to Vibhav's real login.
+- Put large media (video/large images) in `public/` and reference by URL (e.g.
+  `/contact.mp4`) — don't `import` them (avoids the small-asset inlining trap and
+  keeps the bundle lean).
+- **Docs convention:** a genuinely NEW approach gets a new `.md`; an
+  addition/iteration on existing work is APPENDED to the relevant existing `.md`
+  (this file for the app/world). Keep one source of truth per topic.
 
 **DON'T**
 - Don't bump three/R3F/drei to versions needing React 19 (we're on React 18).
@@ -249,9 +284,11 @@ folder, NOT in git.
 
 - **Collision (Phase B):** characters currently fly/walk through walls & floors.
   Real floor/wall collision (raycast or physics) is a deliberate follow-up.
-- **Two-player co-presence is UNTESTED by the dev** (needs two logins) — wired
-  per Supabase's broadcast API but the real test is Aaryan + Vibhav together.
-- **Vibhav's real email** still a placeholder.
+- **Two-player co-presence + contact cutscene are UNTESTED by the dev** (need two
+  logins) — wired per Supabase's broadcast API; the real test is Aaryan + Vibhav
+  together (walk into each other → cutscene should play on BOTH screens).
+- **Vibhav's real email** still a placeholder (`GIRL_EMAIL` in `World.jsx`).
+- **Contact cutscene** (flash → video on meet) — DONE; video is `public/contact.mp4`.
 - **Position persistence / Supabase Presence** (resume where you left off, show
   who's online) — not built; natural next step if wanted.
 - **`src/world/Character.jsx`** is unused (old composite approach) — safe to
