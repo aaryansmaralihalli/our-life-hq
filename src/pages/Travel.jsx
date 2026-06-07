@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { MapContainer, TileLayer, Marker, Polyline, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
-import { Plus, Pencil, Trash2, Search, MapPin } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, MapPin, Image as ImageIcon } from "lucide-react";
 import { useData } from "../context/AppData";
 import {
   Card,
@@ -15,8 +16,12 @@ import {
   Empty,
   PageHeader,
   Chip,
+  StatusPicker,
   confirmDelete,
+  burstConfetti,
 } from "../components/ui";
+import PhotoUploader from "../components/PhotoUploader";
+import { PhotoStrip } from "../components/PhotoStrip";
 import { TRAVEL_STATUSES, HOME_BASE } from "../lib/constants";
 import { haversineKm, round } from "../lib/formulas";
 

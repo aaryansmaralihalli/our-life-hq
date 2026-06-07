@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/Auth";
 import { DataProvider, useData } from "./context/AppData";
@@ -10,6 +11,8 @@ import Travel from "./pages/Travel";
 import Gym from "./pages/Gym";
 import Health from "./pages/Health";
 import Profile from "./pages/Profile";
+// /world pulls in three.js + skinview3d — lazy-load so the dashboard stays light
+const World = lazy(() => import("./pages/World"));
 
 function Splash({ text = "Loading…" }) {
   return (
@@ -40,6 +43,14 @@ function Shell() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route
+          path="world"
+          element={
+            <Suspense fallback={<Splash text="Entering our world…" />}>
+              <World />
+            </Suspense>
+          }
+        />
         <Route path="bucket" element={<BucketList />} />
         <Route path="food" element={<Food />} />
         <Route path="travel" element={<Travel />} />
